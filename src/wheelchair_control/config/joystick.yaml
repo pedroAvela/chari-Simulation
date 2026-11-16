@@ -1,0 +1,13 @@
+# Mapeamento do joystick (controle tipo Xbox).
+# Ajuste os indices conforme o seu controle (use 'ros2 topic echo /joy').
+joystick_teleop:
+  ros__parameters:
+    output_topic: "/cmd_vel_user"
+    linear_axis: 1        # analogico esquerdo vertical
+    angular_axis: 0       # analogico esquerdo horizontal
+    linear_scale: 0.6     # m/s
+    angular_scale: 1.2    # rad/s
+    deadman_button: 4     # LB - segure para andar
+    turbo_button: 5       # RB - acelera
+    turbo_scale: 1.6
+    require_deadman: true

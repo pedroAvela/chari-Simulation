@@ -1,0 +1,211 @@
+<?xml version="1.0"?>
+<!--
+  ============================================================================
+  Cadeira de rodas robotizada - modelo de tracao diferencial
+  Alvo: ROS 2 Jazzy + Gazebo Harmonic (gz-sim)
+  ============================================================================
+  Filosofia de projeto:
+    - Base differential-drive (2 rodas motoras + 2 rodizios frontais).
+    - E o cinematico exato de uma cadeira de rodas real.
+    - TODO o controle entra por um unico Twist em /cmd_vel, entao teclado,
+      joystick e (no futuro) o no de captura da cabeca sao apenas fontes
+      de entrada intercambiaveis. Trocar a fonte NAO exige mexer no robo.
+
+  Convencao de frames:
+    base_link na projecao do centro no chao (z=0).
+    +x para frente, +y para a esquerda, +z para cima.
+  ============================================================================
+-->
+<robot name="wheelchair" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find wheelchair_description)/urdf/inertial_macros.xacro"/>
+  <xacro:include filename="$(find wheelchair_description)/urdf/wheelchair.gazebo.xacro"/>
+
+  <!-- ======================= PARAMETROS ======================= -->
+  <xacro:property name="wheel_radius"    value="0.17"/>
+  <xacro:property name="wheel_width"     value="0.05"/>
+  <xacro:property name="wheel_sep"       value="0.60"/>   <!-- separacao entre rodas motoras -->
+  <xacro:property name="wheel_x"         value="-0.15"/>  <!-- rodas motoras levemente atras -->
+  <xacro:property name="wheel_mass"      value="2.0"/>
+
+  <xacro:property name="caster_radius"   value="0.05"/>
+  <xacro:property name="caster_x"        value="0.30"/>
+  <xacro:property name="caster_y"        value="0.18"/>
+  <xacro:property name="caster_mass"     value="0.3"/>
+
+  <xacro:property name="body_mass"       value="35.0"/>   <!-- estrutura + ocupante -->
+
+  <xacro:property name="PI"              value="3.14159265359"/>
+
+  <!-- ======================= MATERIAIS ======================= -->
+  <material name="seat_blue">   <color rgba="0.12 0.32 0.55 1.0"/></material>
+  <material name="frame_gray">  <color rgba="0.25 0.25 0.28 1.0"/></material>
+  <material name="wheel_black"> <color rgba="0.05 0.05 0.05 1.0"/></material>
+  <material name="sensor_red">  <color rgba="0.75 0.10 0.10 1.0"/></material>
+  <material name="cam_dark">    <color rgba="0.10 0.10 0.10 1.0"/></material>
+
+  <!-- ======================= BASE_LINK ======================= -->
+  <!-- Um unico link com varias visuals (silhueta de cadeira) e uma
+       colisao em caixa que aproxima o footprint (o que o LiDAR dos outros
+       "ve" e o que colide com obstaculos). -->
+  <link name="base_link">
+    <!-- estrutura / assento -->
+    <visual>
+      <origin xyz="0 0 0.32" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.55 0.08"/></geometry>
+      <material name="frame_gray"/>
+    </visual>
+    <!-- almofada do assento -->
+    <visual>
+      <origin xyz="0 0 0.40" rpy="0 0 0"/>
+      <geometry><box size="0.45 0.50 0.08"/></geometry>
+      <material name="seat_blue"/>
+    </visual>
+    <!-- encosto -->
+    <visual>
+      <origin xyz="-0.24 0 0.62" rpy="0 0 0"/>
+      <geometry><box size="0.08 0.50 0.45"/></geometry>
+      <material name="seat_blue"/>
+    </visual>
+    <!-- apoio de pes -->
+    <visual>
+      <origin xyz="0.33 0 0.14" rpy="0 0 0"/>
+      <geometry><box size="0.15 0.50 0.05"/></geometry>
+      <material name="frame_gray"/>
+    </visual>
+
+    <!-- colisao unica aproximando o corpo -->
+    <collision>
+      <origin xyz="0 0 0.40" rpy="0 0 0"/>
+      <geometry><box size="0.60 0.55 0.70"/></geometry>
+    </collision>
+
+    <!-- inercia (CoM propositalmente baixo para estabilidade) -->
+    <xacro:inertial_box mass="${body_mass}" x="0.60" y="0.55" z="0.70">
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+    </xacro:inertial_box>
+  </link>
+
+  <!-- ======================= RODAS MOTORAS ======================= -->
+  <xacro:macro name="drive_wheel" params="prefix side_y">
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${PI/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${PI/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <xacro:inertial_cylinder mass="${wheel_mass}" radius="${wheel_radius}" length="${wheel_width}">
+        <origin xyz="0 0 0" rpy="${PI/2} 0 0"/>
+      </xacro:inertial_cylinder>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${prefix}_wheel_link"/>
+      <origin xyz="${wheel_x} ${side_y} ${wheel_radius}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:drive_wheel prefix="left"  side_y="${ wheel_sep/2}"/>
+  <xacro:drive_wheel prefix="right" side_y="${-wheel_sep/2}"/>
+
+  <!-- ======================= RODIZIOS (CASTERS) ======================= -->
+  <xacro:macro name="caster" params="prefix side_y">
+    <link name="${prefix}_caster_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry><sphere radius="${caster_radius}"/></geometry>
+        <material name="frame_gray"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry><sphere radius="${caster_radius}"/></geometry>
+      </collision>
+      <xacro:inertial_sphere mass="${caster_mass}" radius="${caster_radius}">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </xacro:inertial_sphere>
+    </link>
+
+    <joint name="${prefix}_caster_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="${prefix}_caster_link"/>
+      <origin xyz="${caster_x} ${side_y} ${caster_radius}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:caster prefix="front_left"  side_y="${ caster_y}"/>
+  <xacro:caster prefix="front_right" side_y="${-caster_y}"/>
+
+  <!-- ======================= LIDAR 2D ======================= -->
+  <!-- Montado a frente do corpo (mastro) para varredura limpa a frente. -->
+  <link name="lidar_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.04" length="0.05"/></geometry>
+      <material name="sensor_red"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.04" length="0.05"/></geometry>
+    </collision>
+    <xacro:inertial_cylinder mass="0.15" radius="0.04" length="0.05">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </xacro:inertial_cylinder>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="lidar_link"/>
+    <origin xyz="0.40 0 0.22" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ======================= IMU (do robo) ======================= -->
+  <!-- Atencao: este e o IMU do CHASSI (odometria/estabilidade).
+       O IMU da CABECA do paciente sera um dispositivo externo separado
+       publicando em /head/imu -> ver wheelchair_control/head_teleop.py -->
+  <link name="imu_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.04 0.02"/></geometry>
+      <material name="frame_gray"/>
+    </visual>
+    <xacro:inertial_box mass="0.05" x="0.04" y="0.04" z="0.02">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </xacro:inertial_box>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 0.30" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ======================= CAMERA RGB ======================= -->
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.09 0.03"/></geometry>
+      <material name="cam_dark"/>
+    </visual>
+    <xacro:inertial_box mass="0.05" x="0.03" y="0.09" z="0.03">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </xacro:inertial_box>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="camera_link"/>
+    <origin xyz="0.42 0 0.55" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Frame optico da camera (convencao REP-103: z para frente) -->
+  <link name="camera_optical_link"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_optical_link"/>
+    <origin xyz="0 0 0" rpy="${-PI/2} 0 ${-PI/2}"/>
+  </joint>
+
+</robot>
